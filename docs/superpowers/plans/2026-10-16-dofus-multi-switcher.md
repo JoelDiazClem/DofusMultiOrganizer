@@ -1280,3 +1280,17 @@ git commit -m "feat: launch hidden (no console) instead of minimized"
 - **Spec coverage:** tray icon with Actualizar/Salir (Task 8), cached order replacing live recompute (Task 9's `Switch-DofusWindow`), balloon-based error reporting with tray icon staying alive on hotkey failure (Task 9's `Start-HotkeyListener`), MessageBox for the mutex-conflict case (Task 9's entry script), hidden launch (Task 10). All v2 design requirements map to a task.
 - **Placeholder scan:** no TBD/TODO markers; every step has complete code or exact commands with expected output.
 - **Type consistency:** `Start-TrayIcon` (Task 8) returns a `[System.Windows.Forms.NotifyIcon]`, which Task 9's `Start-HotkeyListener -NotifyIcon` consumes with the matching type constraint. `$global:DofusCachedOrder` is written by both `Start-TrayIcon` (initial) and the "Actualizar" click handler (refresh) in Task 8, and read by `Switch-DofusWindow` in Task 9 — same variable name, same shape (`[IntPtr[]]`, matching `Get-OrderedProcessHandles`'s existing return type from Task 5).
+
+---
+
+## v2.1 Addendum: Custom tray icon (Dofus icon, colors inverted)
+
+Added after v2 was complete and in use. The user asked for the generic `SystemIcons.Application` tray icon to be replaced with the real Dofus icon, color-inverted (RGB negative, alpha untouched), extracted from the installed `Dofus.exe` rather than any external asset.
+
+**Files:**
+- Create: `C:\Users\19lil\Documents\organizador\dofus-multi\New-TrayIcon.ps1` — one-off setup script, same pattern as `New-DesktopShortcut.ps1`. Finds `Dofus.exe` (checks `Dofus-dofus3`, `Dofus-beta`, `Dofus-experimental` under `%LOCALAPPDATA%\Ankama\`, in that preference order), extracts its associated icon via `[System.Drawing.Icon]::ExtractAssociatedIcon`, inverts every pixel's RGB (`255-R, 255-G, 255-B`, alpha unchanged) via per-pixel `GetPixel`/`SetPixel` on a 32×32 bitmap, and saves the result as `dofus-multi\assets\dofus-tray.ico` (directory created if missing) using the standard `Bitmap.GetHicon()` → `Icon.FromHandle()` → `Icon.Save(stream)` technique.
+- Modify: `C:\Users\19lil\Documents\organizador\dofus-multi\lib\TrayIcon.ps1` — `Start-TrayIcon` now loads `assets\dofus-tray.ico` (relative to `$PSScriptRoot`) if it exists, falling back to `[System.Drawing.SystemIcons]::Application` otherwise (e.g. if `New-TrayIcon.ps1` hasn't been run yet).
+
+Verified: ran `New-TrayIcon.ps1` for real — it found `Dofus.exe` at `%LOCALAPPDATA%\Ankama\Dofus-dofus3\Dofus.exe` and produced a 766-byte, 32×32, `Format32bppArgb` `.ico` file. Rendered both the original and inverted icons to PNG and visually confirmed the inversion (green/yellow Dofus egg → magenta/blue negative, transparency preserved). Dot-sourced the updated `TrayIcon.ps1` and called `Start-TrayIcon` directly: confirmed `$icon.Icon` is the custom 32×32 icon (not `SystemIcons.Application`) and `Visible = $true`. Re-ran the full Pester suite (8/8 passing, unaffected — this change doesn't touch `WindowCycle.ps1`'s logic).
+
+This was implemented directly (not via subagent dispatch) given its small, self-contained, visually-verifiable scope.

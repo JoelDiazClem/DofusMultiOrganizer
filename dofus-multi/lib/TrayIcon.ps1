@@ -4,8 +4,13 @@ Add-Type -AssemblyName System.Drawing
 function global:Start-TrayIcon {
     $global:DofusCachedOrder = Get-OrderedProcessHandles -ProcessName 'Dofus'
 
+    $customIconPath = Join-Path $PSScriptRoot "..\assets\dofus-tray.ico"
     $notifyIcon = New-Object System.Windows.Forms.NotifyIcon
-    $notifyIcon.Icon = [System.Drawing.SystemIcons]::Application
+    if (Test-Path $customIconPath) {
+        $notifyIcon.Icon = New-Object System.Drawing.Icon $customIconPath
+    } else {
+        $notifyIcon.Icon = [System.Drawing.SystemIcons]::Application
+    }
     $notifyIcon.Text = "Dofus Multi-switcher (F2/F3)"
     $notifyIcon.Visible = $true
 
