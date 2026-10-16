@@ -999,3 +999,284 @@ Not a git repository — skip `git commit`.
 - **Spec coverage:** entry point/shortcut (Task 7), process-based window detection (Task 2), taskbar-order detection with fallback (Task 4, fallback wired in Task 5), live recomputation per keypress (Task 5's `Switch-DofusWindow` calls `Get-OrderedProcessHandles` fresh every time), reliable foreground focus (Task 3), global F2/F3 hotkeys with clear failure reporting (Task 6), single-instance guard (Task 6), no-Dofus-window message (Task 5), window-closes-mid-session handled by live recompute (Task 5/7 step 6). All spec requirements map to a task.
 - **Placeholder scan:** no TBD/TODO markers; every step has complete, runnable code or exact commands with expected output.
 - **Type consistency:** `Get-NextWindowHandle` signature (`-OrderedHandles`, `-CurrentHandle`, `-Direction`) is identical between Task 1's definition and Task 5's usage. `Get-OrderedProcessHandles -ProcessName` and `Switch-DofusWindow -Direction` are used consistently between Task 5 and Task 6. `Get-DofusWindows` / `Get-ProcessWindows` return the same `[PSCustomObject]@{Handle; Title}` shape everywhere it's consumed.
+
+---
+
+# v2 Addendum: System Tray Icon + Cached Window Order
+
+> Added after the full v1 implementation (Tasks 1-7) was complete and verified against the user's real Dofus windows. See `docs/superpowers/specs/2026-10-16-dofus-multi-switcher-design.md`, section "Revisión v2", for the full rationale: the user wants a tray-icon process (no visible console) and wants F2/F3 to use a cached window order instead of recomputing the taskbar on every keypress (perceptible lag). These three tasks continue the task numbering from the v1 plan above.
+
+## v2 Global Constraints (in addition to the original Global Constraints section)
+
+- No visible console window at any point during normal operation — the shortcut launches with `-WindowStyle Hidden`.
+- F2/F3 must read a cached, in-memory window order (`$global:DofusCachedOrder`) rather than recomputing `Get-TaskbarOrder`/`Get-ProcessWindows` on every press. The cache is populated once at startup and refreshed only via the tray icon's "Actualizar" menu item.
+- If hotkey registration fails, the tray icon must remain visible and functional (Actualizar/Salir still work) — do not exit the process, unlike v1's "fail and exit" behavior (this is an intentional, explicit supersession of the original design, confirmed with the user).
+- Icon: use a built-in system icon (`[System.Drawing.SystemIcons]::Application`) — no custom icon asset.
+
+---
+
+### Task 8: Tray icon module
+
+**Files:**
+- Create: `C:\Users\19lil\Documents\organizador\dofus-multi\lib\TrayIcon.ps1`
+
+**Interfaces:**
+- Consumes: `Get-OrderedProcessHandles` (Task 5, `lib\WindowCycle.ps1`).
+- Produces: `Start-TrayIcon` (no params) → creates and returns a `[System.Windows.Forms.NotifyIcon]`, visible, with a right-click context menu ("Actualizar", "Salir"), and sets `$global:DofusCachedOrder` to the current `Get-OrderedProcessHandles -ProcessName 'Dofus'` result as a side effect. Task 9's `Start-HotkeyListener` consumes the returned `NotifyIcon` object (for error balloons); Task 9's `Switch-DofusWindow` consumes `$global:DofusCachedOrder`.
+
+- [ ] **Step 1: Write the tray icon module**
+
+Create `C:\Users\19lil\Documents\organizador\dofus-multi\lib\TrayIcon.ps1`:
+
+```powershell
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+function global:Start-TrayIcon {
+    $global:DofusCachedOrder = Get-OrderedProcessHandles -ProcessName 'Dofus'
+
+    $notifyIcon = New-Object System.Windows.Forms.NotifyIcon
+    $notifyIcon.Icon = [System.Drawing.SystemIcons]::Application
+    $notifyIcon.Text = "Dofus Multi-switcher (F2/F3)"
+    $notifyIcon.Visible = $true
+
+    $menu = New-Object System.Windows.Forms.ContextMenuStrip
+
+    $refreshItem = New-Object System.Windows.Forms.ToolStripMenuItem "Actualizar"
+    $refreshItem.add_Click({
+        $global:DofusCachedOrder = Get-OrderedProcessHandles -ProcessName 'Dofus'
+        $count = $global:DofusCachedOrder.Count
+        $notifyIcon.ShowBalloonTip(2000, "Dofus Multi-switcher", "Orden actualizado ($count ventanas).", [System.Windows.Forms.ToolTipIcon]::Info)
+    }.GetNewClosure())
+    [void]$menu.Items.Add($refreshItem)
+
+    $exitItem = New-Object System.Windows.Forms.ToolStripMenuItem "Salir"
+    $exitItem.add_Click({
+        $notifyIcon.Visible = $false
+        $notifyIcon.Dispose()
+        [System.Environment]::Exit(0)
+    }.GetNewClosure())
+    [void]$menu.Items.Add($exitItem)
+
+    $notifyIcon.ContextMenuStrip = $menu
+
+    return $notifyIcon
+}
+```
+
+Note: `.GetNewClosure()` is required here — these scriptblocks are invoked later, asynchronously, by the .NET event machinery (not from within `Start-TrayIcon`'s own call stack), so they need the enclosing scope's `$notifyIcon` captured explicitly rather than relying on PowerShell's default dynamic scoping (which only works for callbacks invoked synchronously within the same call stack, like Task 2's `EnumWindows` callback).
+
+- [ ] **Step 2: Manually verify the tray icon and menu in isolation**
+
+Run in a PowerShell window (interactive, so you can see and click the icon):
+```powershell
+. "C:\Users\19lil\Documents\organizador\dofus-multi\lib\WindowInterop.ps1"
+. "C:\Users\19lil\Documents\organizador\dofus-multi\lib\DofusWindows.ps1"
+. "C:\Users\19lil\Documents\organizador\dofus-multi\lib\ForegroundHelper.ps1"
+. "C:\Users\19lil\Documents\organizador\dofus-multi\lib\TaskbarOrder.ps1"
+. "C:\Users\19lil\Documents\organizador\dofus-multi\lib\WindowCycle.ps1"
+. "C:\Users\19lil\Documents\organizador\dofus-multi\lib\TrayIcon.ps1"
+
+$icon = Start-TrayIcon
+Write-Output "Cached order at startup: $($global:DofusCachedOrder -join ', ')"
+while ($true) { [System.Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 50 }
+```
+Expected: an icon appears in the system tray. Right-click it — confirm "Actualizar" and "Salir" both appear. Click "Actualizar" — confirm a balloon notification appears saying "Orden actualizado (N ventanas)." Click "Salir" — confirm the icon disappears from the tray and the PowerShell process exits (the `while` loop's console returns to a prompt / the window closes, depending on how you ran it).
+
+- [ ] **Step 3: Commit**
+
+Not a git repository (per the original plan) — actually this project IS a git repository as of the v1 implementation. Commit:
+```bash
+git add dofus-multi/lib/TrayIcon.ps1
+git commit -m "feat: add system tray icon module with Actualizar/Salir menu"
+```
+
+---
+
+### Task 9: Wire the cache and tray icon into the hotkey listener and entry script
+
+**Files:**
+- Modify: `C:\Users\19lil\Documents\organizador\dofus-multi\lib\WindowCycle.ps1` (replace `Switch-DofusWindow`'s body)
+- Modify: `C:\Users\19lil\Documents\organizador\dofus-multi\lib\HotkeyListener.ps1` (replace `Start-HotkeyListener`'s body)
+- Modify: `C:\Users\19lil\Documents\organizador\dofus-multi\dofus-multi.ps1` (dot-source the new lib, use the tray icon, MessageBox on mutex conflict)
+
+**Interfaces:**
+- Consumes: `Start-TrayIcon` (Task 8), `Get-NextWindowHandle` (Task 1), `Set-ForegroundWindowReliable` (Task 3), `[Win32]::GetForegroundWindow`/`RegisterHotKey`/`UnregisterHotKey` (Task 2).
+- Produces: `Switch-DofusWindow -Direction` now reads `$global:DofusCachedOrder` instead of calling `Get-OrderedProcessHandles` each time. `Start-HotkeyListener -NotifyIcon <NotifyIcon>` (new mandatory parameter) now reports hotkey-registration failures via a balloon tip on that icon instead of `Write-Error`, and continues into the message loop regardless of failure (so the tray icon stays usable).
+
+- [ ] **Step 1: Replace `Switch-DofusWindow` in `WindowCycle.ps1`**
+
+Find the existing `function global:Switch-DofusWindow { ... }` block (appended in Task 5) and replace its entire body with:
+
+```powershell
+function global:Switch-DofusWindow {
+    param(
+        [Parameter(Mandatory)][ValidateSet('Next', 'Prev')]$Direction
+    )
+
+    $ordered = $global:DofusCachedOrder
+    if (-not $ordered -or $ordered.Count -eq 0) {
+        return
+    }
+
+    $current = [Win32]::GetForegroundWindow()
+    $target = Get-NextWindowHandle -OrderedHandles $ordered -CurrentHandle $current -Direction $Direction
+
+    if ($null -ne $target) {
+        Set-ForegroundWindowReliable -Handle $target
+    }
+}
+```
+
+Leave `Get-OrderedProcessHandles` and `Get-NextWindowHandle` in the same file completely unchanged — `Get-OrderedProcessHandles` is still used by `Start-TrayIcon` (Task 8) for the initial cache and by the "Actualizar" menu handler for refreshes.
+
+- [ ] **Step 2: Replace `Start-HotkeyListener` in `HotkeyListener.ps1`**
+
+Keep the `HotkeyWindow`/`HotkeyEventArgs` C# type block exactly as-is. Replace only the `function global:Start-HotkeyListener { ... }` block with:
+
+```powershell
+function global:Start-HotkeyListener {
+    param(
+        [Parameter(Mandatory)][System.Windows.Forms.NotifyIcon]$NotifyIcon
+    )
+
+    $window = New-Object HotkeyWindow
+    [void]$window.Handle  # forces native handle creation without showing the form
+
+    $HOTKEY_ID_NEXT = 1
+    $HOTKEY_ID_PREV = 2
+    $MOD_NONE = 0x0000
+    $VK_F2 = 0x71
+    $VK_F3 = 0x72
+
+    $failedKeys = @()
+
+    $f2Ok = [Win32]::RegisterHotKey($window.Handle, $HOTKEY_ID_NEXT, $MOD_NONE, $VK_F2)
+    if (-not $f2Ok) { $failedKeys += "F2" }
+
+    $f3Ok = [Win32]::RegisterHotKey($window.Handle, $HOTKEY_ID_PREV, $MOD_NONE, $VK_F3)
+    if (-not $f3Ok) { $failedKeys += "F3" }
+
+    if ($failedKeys.Count -gt 0) {
+        if ($f2Ok) { [void][Win32]::UnregisterHotKey($window.Handle, $HOTKEY_ID_NEXT) }
+        if ($f3Ok) { [void][Win32]::UnregisterHotKey($window.Handle, $HOTKEY_ID_PREV) }
+        $failedList = $failedKeys -join " y "
+        $NotifyIcon.ShowBalloonTip(5000, "Dofus Multi-switcher", "No se pudo registrar $failedList como hotkey global. ¿Las esta usando otra aplicacion? El icono sigue activo, pero F2/F3 no funcionaran hasta que relances el programa.", [System.Windows.Forms.ToolTipIcon]::Warning)
+    } else {
+        Register-ObjectEvent -InputObject $window -EventName HotKeyPressed -SourceIdentifier DofusHotkeyPressed -Action {
+            $hotkeyId = $Event.SourceEventArgs.Id
+            if ($hotkeyId -eq 1) {
+                Switch-DofusWindow -Direction Next
+            } elseif ($hotkeyId -eq 2) {
+                Switch-DofusWindow -Direction Prev
+            }
+        } | Out-Null
+    }
+
+    while ($true) {
+        [System.Windows.Forms.Application]::DoEvents()
+        Start-Sleep -Milliseconds 50
+    }
+}
+```
+
+Note: both failure-path and success-path end up at the same `while ($true)` message-pump loop — this is intentional. Unlike v1, a hotkey failure does NOT return early / exit the process; the tray icon (already created by Task 8's `Start-TrayIcon`, called before this function) must stay alive and interactive either way.
+
+- [ ] **Step 3: Update the entry script**
+
+Replace the full contents of `C:\Users\19lil\Documents\organizador\dofus-multi\dofus-multi.ps1` with:
+
+```powershell
+. "$PSScriptRoot\lib\WindowInterop.ps1"
+. "$PSScriptRoot\lib\DofusWindows.ps1"
+. "$PSScriptRoot\lib\ForegroundHelper.ps1"
+. "$PSScriptRoot\lib\TaskbarOrder.ps1"
+. "$PSScriptRoot\lib\WindowCycle.ps1"
+. "$PSScriptRoot\lib\HotkeyListener.ps1"
+. "$PSScriptRoot\lib\TrayIcon.ps1"
+
+$mutexName = "Global\DofusMultiSwitcher"
+$createdNew = $false
+$mutex = New-Object System.Threading.Mutex($true, $mutexName, [ref]$createdNew)
+
+if (-not $createdNew) {
+    [System.Windows.Forms.MessageBox]::Show("Ya hay una instancia de Dofus Multi-switcher activa.", "Dofus Multi-switcher") | Out-Null
+    exit 1
+}
+
+$notifyIcon = Start-TrayIcon
+Start-HotkeyListener -NotifyIcon $notifyIcon
+```
+
+`[System.Windows.Forms.MessageBox]` is available here because `lib\TrayIcon.ps1` and `lib\HotkeyListener.ps1` both `Add-Type -AssemblyName System.Windows.Forms` at dot-source time, before the mutex check runs.
+
+- [ ] **Step 4: Manually verify with real or Notepad-stand-in processes**
+
+With `Get-DofusWindows`-equivalent testing not available without real Dofus running, verify using the real `'Dofus'` target if the user currently has Dofus windows open (preferred — this machine often does), otherwise temporarily point `Start-TrayIcon`'s and `Switch-DofusWindow`'s `-ProcessName 'Dofus'` calls at `'notepad'` in a throwaway copy for testing, same technique as prior tasks.
+
+Run the real, unmodified `dofus-multi.ps1` in a visible (non-hidden) PowerShell window first, so you can observe behavior directly:
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File "C:\Users\19lil\Documents\organizador\dofus-multi\dofus-multi.ps1"
+```
+Expected: no console text (there shouldn't be any `Write-Host` left in the success path), but a tray icon appears. Press F2/F3 (real keys, or verify via `keybd_event` injection from a second PowerShell window as in prior tasks) and confirm focus cycles using the order that was cached at startup — then open/close a window, press F2/F3 again, and confirm the cycle does NOT reflect the change (still using the stale cache) — then click "Actualizar" and confirm it now does. This proves the caching behavior (the actual point of this task) rather than just re-confirming live recompute (which v1 already proved and this task deliberately removes).
+
+Also verify the hotkey-failure path if F2/F3 happen to be claimed at test time (real machine fact from Task 6/7): confirm a balloon tip appears and the tray icon (Actualizar/Salir) still works afterward.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add dofus-multi/lib/WindowCycle.ps1 dofus-multi/lib/HotkeyListener.ps1 dofus-multi/dofus-multi.ps1
+git commit -m "feat: cache window order, report hotkey failures via tray balloon instead of exiting"
+```
+
+---
+
+### Task 10: Hidden launch + final real end-to-end verification
+
+**Files:**
+- Modify: `C:\Users\19lil\Documents\organizador\dofus-multi\New-DesktopShortcut.ps1`
+
+**Interfaces:**
+- Consumes: nothing (standalone setup script, unchanged interface).
+- Produces: the same `.lnk` file, now launching with `-WindowStyle Hidden` instead of `-WindowStyle Minimized -NoExit` (no console at all, not even minimized).
+
+- [ ] **Step 1: Update the shortcut arguments**
+
+In `C:\Users\19lil\Documents\organizador\dofus-multi\New-DesktopShortcut.ps1`, change:
+```powershell
+$shortcut.Arguments = "-NoExit -WindowStyle Minimized -ExecutionPolicy Bypass -File `"$scriptDir\dofus-multi.ps1`""
+```
+to:
+```powershell
+$shortcut.Arguments = "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$scriptDir\dofus-multi.ps1`""
+```
+Nothing else in the file changes.
+
+- [ ] **Step 2: Re-run it and confirm the shortcut was updated**
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File "C:\Users\19lil\Documents\organizador\dofus-multi\New-DesktopShortcut.ps1"
+```
+Then inspect the shortcut's resolved `Arguments` property (via `WScript.Shell`, same technique as Task 7) and confirm it now reads `-WindowStyle Hidden -ExecutionPolicy Bypass -File "...\dofus-multi.ps1"` with no `-NoExit`.
+
+- [ ] **Step 3: Full real end-to-end verification**
+
+1. Double-click `Dofus Multi.lnk` on the Desktop.
+2. Confirm NO console window (not even briefly) appears, and a tray icon appears near the clock within a couple seconds.
+3. With real Dofus windows open, press F2/F3 (or simulate via `keybd_event` from another window) and confirm focus cycles correctly using the startup-cached order.
+4. Open or close a Dofus window, press F2/F3 again, confirm it still uses the old cached order (expected — this is the intended caching behavior), then right-click the tray icon → "Actualizar", confirm the balloon tip appears, then press F2/F3 again and confirm the order now reflects the change.
+5. Right-click the icon → "Salir" — confirm the icon disappears and the process is gone (`Get-Process powershell` no longer shows it).
+6. Double-click the shortcut twice in a row — confirm the second launch shows the "Ya hay una instancia..." MessageBox and the first instance's tray icon is unaffected.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add dofus-multi/New-DesktopShortcut.ps1
+git commit -m "feat: launch hidden (no console) instead of minimized"
+```
+
+## v2 Self-Review Notes
+
+- **Spec coverage:** tray icon with Actualizar/Salir (Task 8), cached order replacing live recompute (Task 9's `Switch-DofusWindow`), balloon-based error reporting with tray icon staying alive on hotkey failure (Task 9's `Start-HotkeyListener`), MessageBox for the mutex-conflict case (Task 9's entry script), hidden launch (Task 10). All v2 design requirements map to a task.
+- **Placeholder scan:** no TBD/TODO markers; every step has complete code or exact commands with expected output.
+- **Type consistency:** `Start-TrayIcon` (Task 8) returns a `[System.Windows.Forms.NotifyIcon]`, which Task 9's `Start-HotkeyListener -NotifyIcon` consumes with the matching type constraint. `$global:DofusCachedOrder` is written by both `Start-TrayIcon` (initial) and the "Actualizar" click handler (refresh) in Task 8, and read by `Switch-DofusWindow` in Task 9 — same variable name, same shape (`[IntPtr[]]`, matching `Get-OrderedProcessHandles`'s existing return type from Task 5).
