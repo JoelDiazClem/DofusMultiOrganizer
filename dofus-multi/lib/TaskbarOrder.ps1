@@ -1,6 +1,3 @@
-Add-Type -AssemblyName UIAutomationClient
-Add-Type -AssemblyName UIAutomationTypes
-
 function global:Get-TaskbarOrder {
     try {
         $taskbarHwnd = [Win32]::FindWindow("Shell_TrayWnd", $null)
@@ -8,28 +5,48 @@ function global:Get-TaskbarOrder {
             return $null
         }
 
-        $taskbarElement = [System.Windows.Automation.AutomationElement]::FromHandle($taskbarHwnd)
+        $rebarHwnd = [Win32]::FindWindowEx($taskbarHwnd, [IntPtr]::Zero, "ReBarWindow32", $null)
+        if ($rebarHwnd -eq [IntPtr]::Zero) { return $null }
 
-        $listCondition = New-Object System.Windows.Automation.PropertyCondition(
-            [System.Windows.Automation.AutomationElement]::ClassNameProperty, "MSTaskListWClass")
-        $taskListElement = $taskbarElement.FindFirst(
-            [System.Windows.Automation.TreeScope]::Descendants, $listCondition)
+        $taskSwHwnd = [Win32]::FindWindowEx($rebarHwnd, [IntPtr]::Zero, "MSTaskSwWClass", $null)
+        if ($taskSwHwnd -eq [IntPtr]::Zero) { return $null }
 
-        if (-not $taskListElement) {
+        $taskListHwnd = [Win32]::FindWindowEx($taskSwHwnd, [IntPtr]::Zero, "MSTaskListWClass", $null)
+        if ($taskListHwnd -eq [IntPtr]::Zero) { return $null }
+
+        $OBJID_CLIENT = [uint32]([int32]-4)
+        $IID_IAccessible = [Guid]"618736E0-3C3D-11CF-810C-00AA00389B71"
+        $iacc = $null
+        $hr = [Oleacc]::AccessibleObjectFromWindow($taskListHwnd, $OBJID_CLIENT, [ref]$IID_IAccessible, [ref]$iacc)
+        if ($hr -ne 0 -or $null -eq $iacc) {
             return $null
         }
 
-        $buttonCondition = New-Object System.Windows.Automation.PropertyCondition(
-            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-            [System.Windows.Automation.ControlType]::Button)
-        $buttons = $taskListElement.FindAll(
-            [System.Windows.Automation.TreeScope]::Children, $buttonCondition)
-
-        $order = New-Object System.Collections.Generic.List[string]
-        foreach ($button in $buttons) {
-            $order.Add($button.Current.Name)
+        $count = $iacc.accChildCount
+        if ($count -le 0) {
+            return $null
         }
-        return $order
+
+        $items = New-Object System.Collections.Generic.List[PSCustomObject]
+        for ($i = 1; $i -le $count; $i++) {
+            $childId = [object]$i
+            $name = $null
+            $left = $i
+            try { $name = $iacc.accName($childId) } catch {}
+            try {
+                [int]$l = 0; [int]$t = 0; [int]$w = 0; [int]$h = 0
+                $iacc.accLocation([ref]$l, [ref]$t, [ref]$w, [ref]$h, $childId)
+                $left = $l
+            } catch {}
+            if ($name) {
+                $items.Add([PSCustomObject]@{ Name = $name; Left = $left })
+            }
+        }
+        if ($items.Count -eq 0) {
+            return $null
+        }
+
+        return ($items | Sort-Object Left | ForEach-Object { $_.Name })
     } catch {
         return $null
     }

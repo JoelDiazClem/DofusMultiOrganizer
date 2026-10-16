@@ -45,6 +45,24 @@ public class Win32 {
 
     [DllImport("user32.dll")]
     public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    public static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string lpszClass, string lpszWindow);
+}
+"@
+}
+
+Add-Type -AssemblyName Accessibility
+
+if (-not ([System.Management.Automation.PSTypeName]'Oleacc').Type) {
+    Add-Type -ReferencedAssemblies Accessibility -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using Accessibility;
+
+public class Oleacc {
+    [DllImport("oleacc.dll")]
+    public static extern int AccessibleObjectFromWindow(IntPtr hwnd, uint dwId, ref Guid riid, [MarshalAs(UnmanagedType.Interface)] out IAccessible ppvObject);
 }
 "@
 }
