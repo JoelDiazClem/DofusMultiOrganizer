@@ -951,7 +951,7 @@ $shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) "Dofus Multi
 $wshShell = New-Object -ComObject WScript.Shell
 $shortcut = $wshShell.CreateShortcut($shortcutPath)
 $shortcut.TargetPath = "powershell.exe"
-$shortcut.Arguments = "-WindowStyle Minimized -ExecutionPolicy Bypass -File `"$scriptDir\dofus-multi.ps1`""
+$shortcut.Arguments = "-NoExit -WindowStyle Minimized -ExecutionPolicy Bypass -File `"$scriptDir\dofus-multi.ps1`""
 $shortcut.WorkingDirectory = $scriptDir
 $shortcut.Description = "Lanza el cambiador de ventanas de Dofus (F2/F3)"
 $shortcut.Save()
@@ -966,6 +966,8 @@ Run:
 powershell.exe -ExecutionPolicy Bypass -File "C:\Users\19lil\Documents\organizador\dofus-multi\New-DesktopShortcut.ps1"
 ```
 Expected output: `Acceso directo creado en: C:\Users\19lil\Desktop\Dofus Multi.lnk`
+
+**Revision (post-final-review):** the `Arguments` line originally omitted `-NoExit`. The final whole-branch review found this meant a hotkey-registration failure (a documented live scenario on the real machine — F2/F3 intermittently claimed by DofusGuide) would `Write-Error` and then the script would reach its end, closing the minimized console immediately — the user would see no feedback at all, silently violating the spec's "informa claramente cuál ha fallado" requirement. Adding `-NoExit` keeps the (still-minimized) console alive after any failure path, so the error text remains visible if the user checks the taskbar; it has no effect on the success path, which never returns (the hotkey listener's `DoEvents()` loop runs forever). The code block above already reflects this fix.
 
 Verify the file exists:
 ```powershell
