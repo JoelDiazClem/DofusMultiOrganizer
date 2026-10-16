@@ -857,9 +857,14 @@ function global:Start-HotkeyListener {
     } | Out-Null
 
     Write-Host "Dofus Multi-switcher activo. F2 = siguiente, F3 = anterior. Cierra esta ventana para salir."
-    [System.Windows.Forms.Application]::Run()
+    while ($true) {
+        [System.Windows.Forms.Application]::DoEvents()
+        Start-Sleep -Milliseconds 50
+    }
 }
 ```
+
+**Revision (post-implementation):** the line above originally read `[System.Windows.Forms.Application]::Run()`. Implementation and live testing (commit `0a2c0a9`) proved this never works: `Application.Run()` blocks the PowerShell runspace's single pipeline thread in a native message loop, and `Register-ObjectEvent`'s queued action is only drained when the runspace becomes idle between pipeline statements — which never happens while `Run()` itself is the never-returning statement. Confirmed via two isolated diagnostics: a raw `WndProc`-level log proved `WM_HOTKEY` really is delivered to the window, while the `Register-ObjectEvent` action never fired after a 6-second wait. Replacing it with the `DoEvents()`/`Start-Sleep` polling loop above was validated empirically: the action fired immediately and reliably, and a full real end-to-end Next/Prev/wraparound cycle test against real Notepad windows (via simulated `keybd_event` key presses) passed. The code block above already reflects this fix — implementers should use it as-is, not the original `Application.Run()`.
 
 - [ ] **Step 2: Write the entry script**
 
