@@ -1294,3 +1294,25 @@ Added after v2 was complete and in use. The user asked for the generic `SystemIc
 Verified: ran `New-TrayIcon.ps1` for real — it found `Dofus.exe` at `%LOCALAPPDATA%\Ankama\Dofus-dofus3\Dofus.exe` and produced a 766-byte, 32×32, `Format32bppArgb` `.ico` file. Rendered both the original and inverted icons to PNG and visually confirmed the inversion (green/yellow Dofus egg → magenta/blue negative, transparency preserved). Dot-sourced the updated `TrayIcon.ps1` and called `Start-TrayIcon` directly: confirmed `$icon.Icon` is the custom 32×32 icon (not `SystemIcons.Application`) and `Visible = $true`. Re-ran the full Pester suite (8/8 passing, unaffected — this change doesn't touch `WindowCycle.ps1`'s logic).
 
 This was implemented directly (not via subagent dispatch) given its small, self-contained, visually-verifiable scope.
+
+---
+
+## v2.2 Addendum: F4 — toggle tiled/fullscreen layout
+
+Added after v2.1. The user asked for F4 to arrange the 4 Dofus windows into a 2x2 grid on the active monitor, and toggle back to fullscreen on a second press.
+
+**Design decisions (confirmed with the user):**
+- "Active monitor" = the monitor containing the currently-focused Dofus window (not cursor position). Fallback (focus isn't on a Dofus window): use the monitor of the first window in `$global:DofusCachedOrder`.
+- "Back to fullscreen" = each window simply maximized wherever it currently is — not restored to its exact pre-tile position/monitor.
+- F4 is registered independently of F2/F3 (not bundled into their "no partial operation" pair) — an F4 registration failure doesn't affect F2/F3, and vice versa, since they're unrelated features. `Register-ObjectEvent` is now always wired regardless of which of F2/F3/F4 individually failed, since the event action is harmless for an id that can never fire (its key was never registered).
+
+**Files:**
+- Modify: `C:\Users\19lil\Documents\organizador\dofus-multi\lib\WindowInterop.ps1` — added `MoveWindow` P/Invoke to `[Win32]`.
+- Create: `C:\Users\19lil\Documents\organizador\dofus-multi\lib\WindowLayout.ps1` — `Get-DofusTargetScreen`, `Set-DofusTiledLayout` (restores each cached window via `SW_RESTORE` then `MoveWindow`s it into one of 4 `Screen.WorkingArea`-derived quadrants, in cached order, up to 4 windows), `Set-DofusFullscreenLayout` (`ShowWindow(SW_MAXIMIZE)` on every cached window), `Toggle-DofusLayout` (flips `$global:DofusTiled` and calls one of the two).
+- Modify: `C:\Users\19lil\Documents\organizador\dofus-multi\lib\HotkeyListener.ps1` — registers F4 (`VK_F4 = 0x73`, id 3) independently; dispatches id 3 to `Toggle-DofusLayout` in the same `Register-ObjectEvent` action as F2/F3.
+- Modify: `C:\Users\19lil\Documents\organizador\dofus-multi\lib\TrayIcon.ps1` — `Start-TrayIcon` now also sets `$global:DofusTiled = $false` at startup; tooltip text updated to mention F4.
+- Modify: `C:\Users\19lil\Documents\organizador\dofus-multi\dofus-multi.ps1` — dot-sources `lib\WindowLayout.ps1`.
+
+**Verification:** implemented directly (not via subagent dispatch for the initial pass), then verified in two stages:
+1. Controller called `Toggle-DofusLayout` directly against the user's 4 real, live Dofus windows: tiled into the exact 4 quadrants of a 2560×1410 working area (`(0,0)-(1280,705)`, `(1280,0)-(2560,705)`, `(0,705)-(1280,1410)`, `(1280,705)-(2560,1410)`), and restored to the exact original maximized rect (`(-8,-8)-(2568,1418)`) on toggling back.
+2. The controller's own PowerShell tool session could register global hotkeys successfully but never received the resulting `WM_HOTKEY` (a session/window-station quirk of that specific session — direct window manipulation like `MoveWindow`/`ShowWindow` worked fine from it, but global hotkey delivery didn't; confirmed not code-related by reproducing the same non-delivery with F6, a key with no history of problems in this project). Delegated the real-hotkey-path verification to a subagent (whose sessions have reliably received hotkeys throughout this project): confirmed a real F4 keypress through the real, unmodified `Start-HotkeyListener`, running in a real background process, correctly tiles on first press and restores to maximized on second press — matching the controller's direct-call results exactly. All 4 real Dofus windows were confirmed never closed/killed throughout, ending maximized.

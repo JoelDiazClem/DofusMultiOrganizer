@@ -116,6 +116,18 @@ Esto **sustituye** las siguientes partes del diseño original (quedan obsoletas,
 
 **Lanzamiento**: el acceso directo cambia de `-WindowStyle Minimized` (con `-NoExit`, añadido tras la revisión final para que los errores no se perdieran) a `-WindowStyle Hidden` (sin `-NoExit`, ya no aplica — no hay consola que mantener abierta; el icono de bandeja es ahora la señal de "sigue vivo").
 
+## Revisión v2.2: F4 — distribuir en mosaico / pantalla completa
+
+Nueva tecla global **F4**, independiente de F2/F3 (si falla al registrarse no afecta a F2/F3 ni viceversa). Alterna entre dos estados:
+- **Primera pulsación** ("mosaico"): las ventanas de Dofus en caché se colocan en un mosaico 2x2 ocupando toda la pantalla donde esté la ventana de Dofus con el foco (si el foco no está en ninguna de Dofus, se usa la pantalla de la primera de la caché).
+- **Segunda pulsación** ("pantalla completa"): todas vuelven a maximizarse, sin más (no se recuerda su posición/pantalla exacta de antes del mosaico).
+
+También se usa un icono genérico de Dofus (ver Revisión v2.1 más abajo) — invertido en colores — tanto en la bandeja como en el acceso directo del escritorio.
+
+## Revisión v2.1: Icono de bandeja personalizado
+
+El icono genérico de Windows (`SystemIcons.Application`) se sustituye por el icono real de `Dofus.exe`, con los colores invertidos (negativo RGB, transparencia intacta). Se extrae y genera una sola vez con `New-TrayIcon.ps1` (guardado en `dofus-multi\assets\dofus-tray.ico`); tanto el icono de bandeja como el acceso directo del escritorio lo usan, con reserva al icono genérico si el archivo no existe.
+
 ## Adaptación de proceso
 
 Este directorio de trabajo no es un repositorio git, por lo que este documento se guarda en `docs/superpowers/specs/` pero no se realiza el commit habitual del flujo de brainstorming.

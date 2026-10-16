@@ -3,6 +3,7 @@
 . "$PSScriptRoot\lib\ForegroundHelper.ps1"
 . "$PSScriptRoot\lib\TaskbarOrder.ps1"
 . "$PSScriptRoot\lib\WindowCycle.ps1"
+. "$PSScriptRoot\lib\WindowLayout.ps1"
 . "$PSScriptRoot\lib\HotkeyListener.ps1"
 . "$PSScriptRoot\lib\TrayIcon.ps1"
 

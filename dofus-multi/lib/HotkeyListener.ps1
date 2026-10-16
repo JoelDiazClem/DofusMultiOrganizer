@@ -37,9 +37,11 @@ function global:Start-HotkeyListener {
 
     $HOTKEY_ID_NEXT = 1
     $HOTKEY_ID_PREV = 2
+    $HOTKEY_ID_TOGGLE_LAYOUT = 3
     $MOD_NONE = 0x0000
     $VK_F2 = 0x71
     $VK_F3 = 0x72
+    $VK_F4 = 0x73
 
     $failedKeys = @()
 
@@ -55,16 +57,23 @@ function global:Start-HotkeyListener {
         $failedList = $failedKeys -join " y "
         $pregunta = if ($failedKeys.Count -eq 1) { "¿La está usando otra aplicación?" } else { "¿Las está usando otra aplicación?" }
         $NotifyIcon.ShowBalloonTip(5000, "Dofus Multi-switcher", "No se pudo registrar $failedList como hotkey global. $pregunta El icono sigue activo, pero F2/F3 no funcionarán hasta que relances el programa.", [System.Windows.Forms.ToolTipIcon]::Warning)
-    } else {
-        Register-ObjectEvent -InputObject $window -EventName HotKeyPressed -SourceIdentifier DofusHotkeyPressed -Action {
-            $hotkeyId = $Event.SourceEventArgs.Id
-            if ($hotkeyId -eq 1) {
-                Switch-DofusWindow -Direction Next
-            } elseif ($hotkeyId -eq 2) {
-                Switch-DofusWindow -Direction Prev
-            }
-        } | Out-Null
     }
+
+    $f4Ok = [Win32]::RegisterHotKey($window.Handle, $HOTKEY_ID_TOGGLE_LAYOUT, $MOD_NONE, $VK_F4)
+    if (-not $f4Ok) {
+        $NotifyIcon.ShowBalloonTip(5000, "Dofus Multi-switcher", "No se pudo registrar F4 como hotkey global. ¿La está usando otra aplicación? El icono sigue activo, pero F4 no funcionará hasta que relances el programa.", [System.Windows.Forms.ToolTipIcon]::Warning)
+    }
+
+    Register-ObjectEvent -InputObject $window -EventName HotKeyPressed -SourceIdentifier DofusHotkeyPressed -Action {
+        $hotkeyId = $Event.SourceEventArgs.Id
+        if ($hotkeyId -eq 1) {
+            Switch-DofusWindow -Direction Next
+        } elseif ($hotkeyId -eq 2) {
+            Switch-DofusWindow -Direction Prev
+        } elseif ($hotkeyId -eq 3) {
+            Toggle-DofusLayout
+        }
+    } | Out-Null
 
     while ($true) {
         [System.Windows.Forms.Application]::DoEvents()
