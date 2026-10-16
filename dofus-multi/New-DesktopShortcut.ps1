@@ -7,6 +7,12 @@ $shortcut.TargetPath = "powershell.exe"
 $shortcut.Arguments = "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$scriptDir\dofus-multi.ps1`""
 $shortcut.WorkingDirectory = $scriptDir
 $shortcut.Description = "Lanza el cambiador de ventanas de Dofus (F2/F3)"
+
+$iconPath = Join-Path $scriptDir "assets\dofus-tray.ico"
+if (Test-Path $iconPath) {
+    $shortcut.IconLocation = "$iconPath,0"
+}
+
 $shortcut.Save()
 
 Write-Host "Acceso directo creado en: $shortcutPath"
