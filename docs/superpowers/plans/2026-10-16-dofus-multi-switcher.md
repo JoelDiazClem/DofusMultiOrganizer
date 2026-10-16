@@ -442,6 +442,113 @@ Not a git repository — skip `git commit`.
 
 ---
 
+### Task 4 — Revision (post-implementation)
+
+**Outcome of the original Task 4 as written:** implemented exactly as specified and verified live on the target machine. `Get-TaskbarOrder` (UI Automation / `System.Windows.Automation`) correctly finds `Shell_TrayWnd` and its `MSTaskListWClass` descendant (real, on-screen bounding rectangle), but every UIA enumeration method (`FindAll` Children/Descendants, `TreeWalker` Raw/Control view) returns **zero child elements** for that node, with or without real windows open — on this exact machine, which is the machine the user will actually run Dofus on. This was independently diagnosed (session, bitness, STA/message-pump, integrity level all ruled out) as an environment-specific limitation of this Windows installation's taskbar accessibility provider, not a bug in the implementation. Commit `51a6650` keeps the brief's original UIA code as-is (kept for the record; superseded below).
+
+**Decision (user, asked directly given this changes real delivered behavior):** rather than accept the spec's documented Z-order fallback permanently, attempt the classic MSAA/`IAccessible` technique (via `oleacc.dll`), which is what pre-UIA taskbar automation tools have historically used and does not depend on the modern UIA-over-taskbar bridge that failed above.
+
+**Revised approach:**
+- Add `FindWindowEx` to the `[Win32]` type in `WindowInterop.ps1` (Task 2's file), to walk `Shell_TrayWnd` → `ReBarWindow32` → `MSTaskSwWClass` → `MSTaskListWClass` by real child HWNDs (these are genuine native child windows on classic Windows 10 taskbars, not virtual UIA nodes).
+- Add a new `Oleacc` P/Invoke type (`AccessibleObjectFromWindow`) and use the .NET Framework's built-in `Accessibility` assembly (`Accessibility.IAccessible`) to fetch the task list's MSAA accessible object directly, bypassing the UIA bridge entirely.
+- Enumerate children via `accChildCount`/`accName`/`accLocation` (simple child IDs, not separate COM objects), and sort by each child's `accLocation` left (x) screen coordinate — this gives true left-to-right visual order directly from on-screen position, which is even more robust than relying on enumeration order.
+- `Get-TaskbarOrder`'s contract to callers is unchanged: still returns an ordered `[string[]]` of window titles, or `$null` on failure. Task 5 is unaffected either way.
+
+**Files:**
+- Modify: `C:\Users\19lil\Documents\organizador\dofus-multi\lib\WindowInterop.ps1` (add `FindWindowEx` to `[Win32]`, add new `[Oleacc]` type)
+- Modify: `C:\Users\19lil\Documents\organizador\dofus-multi\lib\TaskbarOrder.ps1` (replace the `Get-TaskbarOrder` body; keep the function name/signature/contract identical)
+
+**Exact code — append to the `Win32` C# source in `WindowInterop.ps1`** (inside the existing `public class Win32 { ... }` block, alongside the other methods):
+
+```csharp
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    public static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string lpszClass, string lpszWindow);
+```
+
+**Exact code — new type, added to `WindowInterop.ps1` after the existing `Win32` type guard block:**
+
+```powershell
+Add-Type -AssemblyName Accessibility
+
+if (-not ([System.Management.Automation.PSTypeName]'Oleacc').Type) {
+    Add-Type -ReferencedAssemblies Accessibility -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using Accessibility;
+
+public class Oleacc {
+    [DllImport("oleacc.dll")]
+    public static extern int AccessibleObjectFromWindow(IntPtr hwnd, uint dwId, ref Guid riid, [MarshalAs(UnmanagedType.Interface)] out IAccessible ppvObject);
+}
+"@
+}
+```
+
+**Exact code — full replacement of `TaskbarOrder.ps1`:**
+
+```powershell
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+
+function global:Get-TaskbarOrder {
+    try {
+        $taskbarHwnd = [Win32]::FindWindow("Shell_TrayWnd", $null)
+        if ($taskbarHwnd -eq [IntPtr]::Zero) {
+            return $null
+        }
+
+        $rebarHwnd = [Win32]::FindWindowEx($taskbarHwnd, [IntPtr]::Zero, "ReBarWindow32", $null)
+        if ($rebarHwnd -eq [IntPtr]::Zero) { return $null }
+
+        $taskSwHwnd = [Win32]::FindWindowEx($rebarHwnd, [IntPtr]::Zero, "MSTaskSwWClass", $null)
+        if ($taskSwHwnd -eq [IntPtr]::Zero) { return $null }
+
+        $taskListHwnd = [Win32]::FindWindowEx($taskSwHwnd, [IntPtr]::Zero, "MSTaskListWClass", $null)
+        if ($taskListHwnd -eq [IntPtr]::Zero) { return $null }
+
+        $OBJID_CLIENT = [uint32]([int32]-4)
+        $IID_IAccessible = [Guid]"618736E0-3C3D-11CF-810C-00AA00389B71"
+        $iacc = $null
+        $hr = [Oleacc]::AccessibleObjectFromWindow($taskListHwnd, $OBJID_CLIENT, [ref]$IID_IAccessible, [ref]$iacc)
+        if ($hr -ne 0 -or $null -eq $iacc) {
+            return $null
+        }
+
+        $count = $iacc.accChildCount
+        if ($count -le 0) {
+            return $null
+        }
+
+        $items = New-Object System.Collections.Generic.List[PSCustomObject]
+        for ($i = 1; $i -le $count; $i++) {
+            $childId = [object]$i
+            $name = $null
+            $left = $i
+            try { $name = $iacc.accName($childId) } catch {}
+            try {
+                [int]$l = 0; [int]$t = 0; [int]$w = 0; [int]$h = 0
+                $iacc.accLocation([ref]$l, [ref]$t, [ref]$w, [ref]$h, $childId)
+                $left = $l
+            } catch {}
+            if ($name) {
+                $items.Add([PSCustomObject]@{ Name = $name; Left = $left })
+            }
+        }
+        if ($items.Count -eq 0) {
+            return $null
+        }
+
+        return ($items | Sort-Object Left | ForEach-Object { $_.Name })
+    } catch {
+        return $null
+    }
+}
+```
+
+**Manual verification:** repeat the original Task 4 Step 2 verification (three Notepad windows with distinct `dofus-test-*.txt` names, confirm visual left-to-right order, dot-source and call `Get-TaskbarOrder`), run as a single self-contained PowerShell invocation producing real, pasted-verbatim output. If this also returns `$null`, report the exact `$hr` value from `AccessibleObjectFromWindow` and which step (`FindWindowEx` chain vs. `AccessibleObjectFromWindow` vs. `accChildCount`) failed — do not silently fall back without reporting which layer broke.
+
+---
+
 ### Task 5: Order composition and the switch action
 
 **Files:**
