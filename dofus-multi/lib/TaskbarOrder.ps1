@@ -1,3 +1,24 @@
+function global:Find-ChildWindowByClass {
+    param(
+        [Parameter(Mandatory)][IntPtr]$Parent,
+        [Parameter(Mandatory)][string]$ClassName
+    )
+
+    $GW_CHILD = 5
+    $GW_HWNDNEXT = 2
+
+    $child = [Win32]::GetWindow($Parent, $GW_CHILD)
+    while ($child -ne [IntPtr]::Zero) {
+        $sb = New-Object System.Text.StringBuilder 256
+        [void][Win32]::GetClassName($child, $sb, $sb.Capacity)
+        if ($sb.ToString() -eq $ClassName) {
+            return $child
+        }
+        $child = [Win32]::GetWindow($child, $GW_HWNDNEXT)
+    }
+    return [IntPtr]::Zero
+}
+
 function global:Get-TaskbarOrder {
     try {
         $taskbarHwnd = [Win32]::FindWindow("Shell_TrayWnd", $null)
@@ -5,16 +26,16 @@ function global:Get-TaskbarOrder {
             return $null
         }
 
-        $rebarHwnd = [Win32]::FindWindowEx($taskbarHwnd, [IntPtr]::Zero, "ReBarWindow32", $null)
+        $rebarHwnd = Find-ChildWindowByClass -Parent $taskbarHwnd -ClassName "ReBarWindow32"
         if ($rebarHwnd -eq [IntPtr]::Zero) { return $null }
 
-        $taskSwHwnd = [Win32]::FindWindowEx($rebarHwnd, [IntPtr]::Zero, "MSTaskSwWClass", $null)
+        $taskSwHwnd = Find-ChildWindowByClass -Parent $rebarHwnd -ClassName "MSTaskSwWClass"
         if ($taskSwHwnd -eq [IntPtr]::Zero) { return $null }
 
-        $taskListHwnd = [Win32]::FindWindowEx($taskSwHwnd, [IntPtr]::Zero, "MSTaskListWClass", $null)
+        $taskListHwnd = Find-ChildWindowByClass -Parent $taskSwHwnd -ClassName "MSTaskListWClass"
         if ($taskListHwnd -eq [IntPtr]::Zero) { return $null }
 
-        $OBJID_CLIENT = [uint32]([int32]-4)
+        $OBJID_CLIENT = [uint32]0xFFFFFFFC
         $IID_IAccessible = [Guid]"618736E0-3C3D-11CF-810C-00AA00389B71"
         $iacc = $null
         $hr = [Oleacc]::AccessibleObjectFromWindow($taskListHwnd, $OBJID_CLIENT, [ref]$IID_IAccessible, [ref]$iacc)
