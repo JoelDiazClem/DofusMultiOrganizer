@@ -29,12 +29,39 @@ function global:Set-DofusTiledLayout {
     )
 
     $SW_RESTORE = 9
+    $DWMWA_EXTENDED_FRAME_BOUNDS = 9
+    $rectSize = [System.Runtime.InteropServices.Marshal]::SizeOf([type]'RECT')
+
     $index = 0
     foreach ($handle in $global:DofusCachedOrder) {
         if ($index -ge 4) { break }
         $q = $quadrants[$index]
+
         [void][Win32]::ShowWindow($handle, $SW_RESTORE)
-        [void][Win32]::MoveWindow($handle, $q.X, $q.Y, $q.W, $q.H, $true)
+
+        # Windows gives most windows an invisible resize border outside their
+        # visible edge (e.g. a maximized window's real rect extends ~8px past
+        # the screen on every side). MoveWindow positions by that real rect,
+        # not the visible one, so tiling by raw quadrant math leaves a gap
+        # between windows. DwmGetWindowAttribute's extended frame bounds give
+        # the visible rect; the difference from GetWindowRect is the border,
+        # which we then compensate for so the VISIBLE edges touch exactly.
+        $windowRect = New-Object RECT
+        [void][Win32]::GetWindowRect($handle, [ref]$windowRect)
+        $visibleRect = New-Object RECT
+        [void][Win32]::DwmGetWindowAttribute($handle, $DWMWA_EXTENDED_FRAME_BOUNDS, [ref]$visibleRect, $rectSize)
+
+        $borderLeft = $visibleRect.Left - $windowRect.Left
+        $borderTop = $visibleRect.Top - $windowRect.Top
+        $borderRight = $windowRect.Right - $visibleRect.Right
+        $borderBottom = $windowRect.Bottom - $visibleRect.Bottom
+
+        $targetX = $q.X - $borderLeft
+        $targetY = $q.Y - $borderTop
+        $targetW = $q.W + $borderLeft + $borderRight
+        $targetH = $q.H + $borderTop + $borderBottom
+
+        [void][Win32]::MoveWindow($handle, $targetX, $targetY, $targetW, $targetH, $true)
         $index++
     }
 }
