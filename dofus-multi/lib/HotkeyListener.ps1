@@ -28,6 +28,10 @@ public class HotkeyWindow : Form {
 }
 
 function global:Start-HotkeyListener {
+    param(
+        [Parameter(Mandatory)][System.Windows.Forms.NotifyIcon]$NotifyIcon
+    )
+
     $window = New-Object HotkeyWindow
     [void]$window.Handle  # forces native handle creation without showing the form
 
@@ -37,26 +41,30 @@ function global:Start-HotkeyListener {
     $VK_F2 = 0x71
     $VK_F3 = 0x72
 
-    if (-not [Win32]::RegisterHotKey($window.Handle, $HOTKEY_ID_NEXT, $MOD_NONE, $VK_F2)) {
-        Write-Error "No se pudo registrar F2 como hotkey global. ¿La está usando otra aplicación?"
-        return
-    }
-    if (-not [Win32]::RegisterHotKey($window.Handle, $HOTKEY_ID_PREV, $MOD_NONE, $VK_F3)) {
-        [void][Win32]::UnregisterHotKey($window.Handle, $HOTKEY_ID_NEXT)
-        Write-Error "No se pudo registrar F3 como hotkey global. ¿La está usando otra aplicación?"
-        return
+    $failedKeys = @()
+
+    $f2Ok = [Win32]::RegisterHotKey($window.Handle, $HOTKEY_ID_NEXT, $MOD_NONE, $VK_F2)
+    if (-not $f2Ok) { $failedKeys += "F2" }
+
+    $f3Ok = [Win32]::RegisterHotKey($window.Handle, $HOTKEY_ID_PREV, $MOD_NONE, $VK_F3)
+    if (-not $f3Ok) { $failedKeys += "F3" }
+
+    if ($failedKeys.Count -gt 0) {
+        if ($f2Ok) { [void][Win32]::UnregisterHotKey($window.Handle, $HOTKEY_ID_NEXT) }
+        if ($f3Ok) { [void][Win32]::UnregisterHotKey($window.Handle, $HOTKEY_ID_PREV) }
+        $failedList = $failedKeys -join " y "
+        $NotifyIcon.ShowBalloonTip(5000, "Dofus Multi-switcher", "No se pudo registrar $failedList como hotkey global. ¿Las esta usando otra aplicacion? El icono sigue activo, pero F2/F3 no funcionaran hasta que relances el programa.", [System.Windows.Forms.ToolTipIcon]::Warning)
+    } else {
+        Register-ObjectEvent -InputObject $window -EventName HotKeyPressed -SourceIdentifier DofusHotkeyPressed -Action {
+            $hotkeyId = $Event.SourceEventArgs.Id
+            if ($hotkeyId -eq 1) {
+                Switch-DofusWindow -Direction Next
+            } elseif ($hotkeyId -eq 2) {
+                Switch-DofusWindow -Direction Prev
+            }
+        } | Out-Null
     }
 
-    Register-ObjectEvent -InputObject $window -EventName HotKeyPressed -SourceIdentifier DofusHotkeyPressed -Action {
-        $hotkeyId = $Event.SourceEventArgs.Id
-        if ($hotkeyId -eq 1) {
-            Switch-DofusWindow -Direction Next
-        } elseif ($hotkeyId -eq 2) {
-            Switch-DofusWindow -Direction Prev
-        }
-    } | Out-Null
-
-    Write-Host "Dofus Multi-switcher activo. F2 = siguiente, F3 = anterior. Cierra esta ventana para salir."
     while ($true) {
         [System.Windows.Forms.Application]::DoEvents()
         Start-Sleep -Milliseconds 50

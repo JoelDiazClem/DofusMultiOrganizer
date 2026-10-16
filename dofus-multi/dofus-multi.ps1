@@ -4,14 +4,16 @@
 . "$PSScriptRoot\lib\TaskbarOrder.ps1"
 . "$PSScriptRoot\lib\WindowCycle.ps1"
 . "$PSScriptRoot\lib\HotkeyListener.ps1"
+. "$PSScriptRoot\lib\TrayIcon.ps1"
 
 $mutexName = "Global\DofusMultiSwitcher"
 $createdNew = $false
 $mutex = New-Object System.Threading.Mutex($true, $mutexName, [ref]$createdNew)
 
 if (-not $createdNew) {
-    Write-Host "Ya hay una instancia de Dofus Multi-switcher activa."
+    [System.Windows.Forms.MessageBox]::Show("Ya hay una instancia de Dofus Multi-switcher activa.", "Dofus Multi-switcher") | Out-Null
     exit 1
 }
 
-Start-HotkeyListener
+$notifyIcon = Start-TrayIcon
+Start-HotkeyListener -NotifyIcon $notifyIcon

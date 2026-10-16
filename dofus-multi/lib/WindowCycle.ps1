@@ -75,9 +75,8 @@ function global:Switch-DofusWindow {
         [Parameter(Mandatory)][ValidateSet('Next', 'Prev')]$Direction
     )
 
-    $ordered = Get-OrderedProcessHandles -ProcessName 'Dofus'
-    if ($ordered.Count -eq 0) {
-        Write-Host "No hay ninguna ventana de Dofus abierta ahora mismo."
+    $ordered = $global:DofusCachedOrder
+    if (-not $ordered -or $ordered.Count -eq 0) {
         return
     }
 
@@ -86,7 +85,5 @@ function global:Switch-DofusWindow {
 
     if ($null -ne $target) {
         Set-ForegroundWindowReliable -Handle $target
-        $matchedTitle = (Get-DofusWindows | Where-Object { $_.Handle -eq $target } | Select-Object -First 1).Title
-        Write-Host "Cambiando a: $matchedTitle"
     }
 }
