@@ -35,7 +35,7 @@ function global:Get-TaskbarOrder {
         $taskListHwnd = Find-ChildWindowByClass -Parent $taskSwHwnd -ClassName "MSTaskListWClass"
         if ($taskListHwnd -eq [IntPtr]::Zero) { return $null }
 
-        $OBJID_CLIENT = [uint32]0xFFFFFFFC
+        $OBJID_CLIENT = [BitConverter]::ToUInt32([BitConverter]::GetBytes([int32]-4), 0)
         $IID_IAccessible = [Guid]"618736E0-3C3D-11CF-810C-00AA00389B71"
         $iacc = $null
         $hr = [Oleacc]::AccessibleObjectFromWindow($taskListHwnd, $OBJID_CLIENT, [ref]$IID_IAccessible, [ref]$iacc)
