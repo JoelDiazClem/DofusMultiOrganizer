@@ -57,5 +57,8 @@ function global:Start-HotkeyListener {
     } | Out-Null
 
     Write-Host "Dofus Multi-switcher activo. F2 = siguiente, F3 = anterior. Cierra esta ventana para salir."
-    [System.Windows.Forms.Application]::Run()
+    while ($true) {
+        [System.Windows.Forms.Application]::DoEvents()
+        Start-Sleep -Milliseconds 50
+    }
 }
