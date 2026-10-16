@@ -86,6 +86,36 @@ Al arrancar: mensaje de estado ("Dofus Multi-switcher activo. F2 = siguiente, F3
 - El acceso directo de escritorio debe lanzar `powershell.exe -WindowStyle Minimized -ExecutionPolicy Bypass -File dofus-multi.ps1` (o `pwsh.exe` si está disponible).
 - Validar manualmente en máquina real: registro de hotkeys, cambio de foco con ventanas minimizadas, comportamiento con 2/3/4 ventanas abiertas, y el caso de reordenar la barra de tareas a mano entre pulsaciones.
 
+## Revisión v2 (post-entrega): icono de bandeja + orden cacheado
+
+Tras la primera entrega completa (7 tareas, verificada contra las 4 cuentas reales del usuario), el usuario pidió dos cambios de comportamiento basados en uso real:
+
+1. **Sin ventana de consola**: quiere que corra como un proceso de bandeja del sistema (system tray), no como un "programa" con ventana/consola visible.
+2. **Sin recálculo en cada pulsación**: recorrer la barra de tareas en cada F2/F3 causaba lag perceptible. En vez de eso, el orden se calcula **una vez al arrancar** y se cachea; una opción de clic derecho en el icono ("Actualizar") permite refrescarlo a demanda cuando el usuario abre/cierra cuentas.
+
+Esto **sustituye** las siguientes partes del diseño original (quedan obsoletas, no se usan ya):
+- Sección "Alcance → Explícitamente fuera de alcance": *"Icono de bandeja del sistema (se usa acceso directo + consola minimizada)"* → ya no aplica, ahora SÍ hay icono de bandeja.
+- `Switch-DofusWindow`, paso 1: ya no recalcula `Get-TaskbarOrder`/`Get-DofusWindows` en cada pulsación; lee una variable de caché en memoria (`$global:DofusCachedOrder`), rellenada al arrancar y por el menú "Actualizar".
+- Sección "Consola / feedback" y la fila de la tabla de errores "F2 o F3 ya registrados... salida inmediata": sustituidas por lo siguiente.
+
+### Nuevos componentes
+
+**Icono de bandeja (`NotifyIcon`)**: aparece junto al reloj al arrancar. Icono genérico del sistema (sin arte personalizado, por simplicidad). Tooltip indicando el nombre del programa. Menú de clic derecho con dos opciones:
+- **Actualizar**: recalcula `$global:DofusCachedOrder` llamando a `Get-OrderedProcessHandles -ProcessName 'Dofus'` y muestra un globo de notificación breve confirmando el refresco.
+- **Salir**: oculta el icono (evita que quede "fantasma" en la bandeja) y termina el proceso — F2/F3 quedan liberados automáticamente al terminar el proceso, igual que antes.
+
+**Orden cacheado**: al arrancar, se calcula el orden una vez (igual llamada que antes, `Get-OrderedProcessHandles -ProcessName 'Dofus'`) y se guarda en `$global:DofusCachedOrder`. `Switch-DofusWindow` ya no vuelve a tocar `Get-TaskbarOrder`/`Get-ProcessWindows` en cada pulsación — solo lee esa variable y calcula el índice siguiente/anterior con `Get-NextWindowHandle` (sin cambios). Si el usuario abre/cierra cuentas después de arrancar, debe pulsar "Actualizar" para que el ciclo lo refleje.
+
+**Manejo de errores sin consola:**
+
+| Caso | Comportamiento (v2) |
+|---|---|
+| F2 o F3 ya registrados por otra app | Globo de notificación junto al icono explicando qué tecla falló. El icono **sigue visible** (Actualizar/Salir siguen funcionando), pero F2/F3 quedan inactivos hasta relanzar el programa. Ya no "termina inmediatamente" como en v1 — no tiene sentido cerrar el proceso de bandeja solo porque las teclas fallen, cuando el usuario puede querer cerrar DofusGuide y pulsar Actualizar/relanzar después. |
+| Doble lanzamiento del acceso directo | Ventana de aviso (`MessageBox`, no globo — la segunda instancia no tiene icono propio del que colgar un globo) con el mismo mensaje de siempre, y termina. |
+| Ninguna ventana de Dofus en caché al pulsar F2/F3 | Sin consola donde avisar; simplemente no hace nada (comportamiento silencioso — el usuario puede comprobar vía "Actualizar" si hace falta). |
+
+**Lanzamiento**: el acceso directo cambia de `-WindowStyle Minimized` (con `-NoExit`, añadido tras la revisión final para que los errores no se perdieran) a `-WindowStyle Hidden` (sin `-NoExit`, ya no aplica — no hay consola que mantener abierta; el icono de bandeja es ahora la señal de "sigue vivo").
+
 ## Adaptación de proceso
 
 Este directorio de trabajo no es un repositorio git, por lo que este documento se guarda en `docs/superpowers/specs/` pero no se realiza el commit habitual del flujo de brainstorming.
