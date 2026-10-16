@@ -648,6 +648,25 @@ function global:Get-TaskbarOrder {
 
 **Manual verification:** same as Revision 1's verification — three Notepad windows, single-invocation capture, real pasted output. If `Get-TaskbarOrder` still returns `$null`, report exactly which `Find-ChildWindowByClass` call returned `IntPtr.Zero` (i.e., which class name wasn't found among its parent's children) or whether it got past all three traversals and failed at `AccessibleObjectFromWindow`/`accChildCount` instead — do not silently accept fallback without this detail. If it succeeds, this is the final, working implementation — no further revision needed.
 
+**Outcome of this revision:** implemented exactly as specified (commit `6952081`). The `Find-ChildWindowByClass`/`GetWindow` traversal works perfectly — `ReBarWindow32`, `MSTaskSwWClass`, and `MSTaskListWClass` were all found correctly on the first try. The function still returns `$null`, but now for a third, much smaller reason: `[uint32]0xFFFFFFFC` also throws in PowerShell 5.1 — PowerShell's hex-literal parser interprets `0xFFFFFFFC` using 32-bit bit-pattern typing, i.e. as `Int32 -4` (not promoted to a wider/unsigned type the way the plan assumed), so the cast hits the identical checked-overflow exception as the original `[uint32]([int32]-4)` attempt. Every other part of the implementation is confirmed working.
+
+### Task 4 — Revision 3 (final: fix the OBJID_CLIENT literal with an unambiguous byte conversion)
+
+**Files:**
+- Modify: `C:\Users\19lil\Documents\organizador\dofus-multi\lib\TaskbarOrder.ps1` — change exactly one line.
+
+**Exact one-line fix**, replacing the `$OBJID_CLIENT` line inside `Get-TaskbarOrder`:
+
+```powershell
+$OBJID_CLIENT = [BitConverter]::ToUInt32([BitConverter]::GetBytes([int32]-4), 0)
+```
+
+This reinterprets the 4 bytes of the `Int32` value `-4` directly as a `UInt32` (matching C#'s `unchecked((uint)-4)` semantics exactly), with no dependence on how PowerShell types a numeric or hex literal — this sidesteps both prior overflow failures for good.
+
+Nothing else in the file changes.
+
+**Manual verification:** same three-Notepad-window procedure, single-invocation capture. This should be the final, working implementation — `Get-TaskbarOrder` should now return the three titles in true left-to-right visual order (sorted by `accLocation`'s on-screen X coordinate). If it still fails, report exactly where (`AccessibleObjectFromWindow`'s `$hr` value, or the `accChildCount`/per-child loop) — at that point stop iterating and report DONE_WITH_CONCERNS; the project's documented Z-order fallback remains available regardless.
+
 ---
 
 ### Task 5: Order composition and the switch action
