@@ -30,3 +30,63 @@ function global:Get-NextWindowHandle {
 
     return $OrderedHandles[$nextIndex]
 }
+
+function global:Get-OrderedProcessHandles {
+    param(
+        [Parameter(Mandatory)][string]$ProcessName
+    )
+
+    $windows = Get-ProcessWindows -ProcessName $ProcessName
+    if (-not $windows -or $windows.Count -eq 0) {
+        return @()
+    }
+
+    $taskbarOrder = Get-TaskbarOrder
+    if (-not $taskbarOrder) {
+        Write-Host "Aviso: no se pudo leer el orden de la barra de tareas, usando orden alternativo."
+        return @($windows | ForEach-Object { $_.Handle })
+    }
+
+    $ordered = [System.Collections.Generic.List[IntPtr]]::new()
+    $remaining = [System.Collections.Generic.List[PSCustomObject]]::new()
+    foreach ($w in $windows) { $remaining.Add($w) }
+
+    foreach ($title in $taskbarOrder) {
+        # Get-TaskbarOrder's entries can carry a locale-dependent suffix beyond the
+        # real window title (e.g. "<title>: 4 ventanas en ejecución" when Windows
+        # groups several windows of the same app) - verified empirically on this
+        # machine's real taskbar during Task 4. Match by prefix, not exact equality,
+        # so this still works regardless of what (if anything) follows the title.
+        $match = $remaining | Where-Object { $_.Title -and $title.StartsWith($_.Title) } | Select-Object -First 1
+        if ($match) {
+            $ordered.Add($match.Handle)
+            [void]$remaining.Remove($match)
+        }
+    }
+    foreach ($leftover in $remaining) {
+        $ordered.Add($leftover.Handle)
+    }
+
+    return $ordered
+}
+
+function global:Switch-DofusWindow {
+    param(
+        [Parameter(Mandatory)][ValidateSet('Next', 'Prev')]$Direction
+    )
+
+    $ordered = Get-OrderedProcessHandles -ProcessName 'Dofus'
+    if ($ordered.Count -eq 0) {
+        Write-Host "No hay ninguna ventana de Dofus abierta ahora mismo."
+        return
+    }
+
+    $current = [Win32]::GetForegroundWindow()
+    $target = Get-NextWindowHandle -OrderedHandles $ordered -CurrentHandle $current -Direction $Direction
+
+    if ($null -ne $target) {
+        Set-ForegroundWindowReliable -Handle $target
+        $matchedTitle = (Get-DofusWindows | Where-Object { $_.Handle -eq $target } | Select-Object -First 1).Title
+        Write-Host "Cambiando a: $matchedTitle"
+    }
+}
