@@ -53,7 +53,8 @@ function global:Start-HotkeyListener {
         if ($f2Ok) { [void][Win32]::UnregisterHotKey($window.Handle, $HOTKEY_ID_NEXT) }
         if ($f3Ok) { [void][Win32]::UnregisterHotKey($window.Handle, $HOTKEY_ID_PREV) }
         $failedList = $failedKeys -join " y "
-        $NotifyIcon.ShowBalloonTip(5000, "Dofus Multi-switcher", "No se pudo registrar $failedList como hotkey global. ¿Las esta usando otra aplicacion? El icono sigue activo, pero F2/F3 no funcionaran hasta que relances el programa.", [System.Windows.Forms.ToolTipIcon]::Warning)
+        $pregunta = if ($failedKeys.Count -eq 1) { "¿La está usando otra aplicación?" } else { "¿Las está usando otra aplicación?" }
+        $NotifyIcon.ShowBalloonTip(5000, "Dofus Multi-switcher", "No se pudo registrar $failedList como hotkey global. $pregunta El icono sigue activo, pero F2/F3 no funcionarán hasta que relances el programa.", [System.Windows.Forms.ToolTipIcon]::Warning)
     } else {
         Register-ObjectEvent -InputObject $window -EventName HotKeyPressed -SourceIdentifier DofusHotkeyPressed -Action {
             $hotkeyId = $Event.SourceEventArgs.Id
