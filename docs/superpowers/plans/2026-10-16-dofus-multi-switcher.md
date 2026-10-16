@@ -706,7 +706,12 @@ function global:Get-OrderedProcessHandles {
     foreach ($w in $windows) { $remaining.Add($w) }
 
     foreach ($title in $taskbarOrder) {
-        $match = $remaining | Where-Object { $_.Title -eq $title } | Select-Object -First 1
+        # Get-TaskbarOrder's entries can carry a locale-dependent suffix beyond the
+        # real window title (e.g. "<title>: 4 ventanas en ejecución" when Windows
+        # groups several windows of the same app) - verified empirically on this
+        # machine's real taskbar during Task 4. Match by prefix, not exact equality,
+        # so this still works regardless of what (if anything) follows the title.
+        $match = $remaining | Where-Object { $_.Title -and $title.StartsWith($_.Title) } | Select-Object -First 1
         if ($match) {
             $ordered.Add($match.Handle)
             [void]$remaining.Remove($match)
