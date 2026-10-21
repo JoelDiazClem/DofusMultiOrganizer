@@ -16,7 +16,7 @@ El orden de las ventanas es el de la **barra de tareas**: arrastra los iconos en
 
 ## Descarga y uso (recomendado)
 
-1. Descarga **[DofusMulti.exe](https://github.com/JoelDiazClem/DofusMultiOrganizer/raw/main/release/DofusMulti.exe)**.
+1. Descarga **[DofusMulti.exe](https://github.com/JoelDiazClem/DofusMultiOrganizer/releases/latest/download/DofusMulti.exe) desde la [última release](https://github.com/JoelDiazClem/DofusMultiOrganizer/releases/latest)**.
 2. Guárdalo donde quieras (por ejemplo, en el escritorio) y haz doble clic.
 3. Aparece un icono en la bandeja del sistema, junto al reloj. Desde ahí puedes **Actualizar** el orden o **Salir**.
 
