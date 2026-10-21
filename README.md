@@ -52,7 +52,7 @@ Probado en Windows 10. En Windows 11 la barra de tareas tiene otra estructura in
 powershell -ExecutionPolicy Bypass -File .\dofus-multi\build\Build-Exe.ps1
 ```
 
-El script junta todas las librerías de `dofus-multi/lib` y el punto de entrada en un único script, y lo incrusta junto con el icono en un lanzador mínimo en C# (`build/Launcher.cs`). Ese lanzador se compila con el `csc.exe` que incluye .NET Framework, así que no hace falta instalar nada. El resultado queda en `release/DofusMulti.exe`.
+El script junta todas las librerías de `dofus-multi/lib` y el punto de entrada en un único script, y lo incrusta junto con el icono en un lanzador mínimo en C# (`build/Launcher.cs`). Ese lanzador se compila con el `csc.exe` que incluye .NET Framework, así que no hace falta instalar nada. El resultado queda en `release/DofusMulti.exe`, que no se versiona en el repo: para publicarlo, súbelo a una nueva [release de GitHub](https://github.com/JoelDiazClem/DofusMultiOrganizer/releases).
 
 Al ejecutarse, el `.exe` extrae el script a `%TEMP%\DofusMulti\` y lo lanza con el `powershell.exe` de Windows, sin ventana de consola.
 
@@ -67,8 +67,6 @@ dofus-multi/
   lib/                     Lógica (ventanas, orden de la barra de tareas, mosaico, hotkeys...)
   build/                   Script de compilación y lanzador C#
   tests/                   Tests de Pester
-release/
-  DofusMulti.exe           Ejecutable listo para descargar
 ```
 
 ## Tests
