@@ -7,7 +7,11 @@ function global:Start-TrayIcon {
 
     $customIconPath = Join-Path $PSScriptRoot "..\assets\dofus-tray.ico"
     $notifyIcon = New-Object System.Windows.Forms.NotifyIcon
-    if (Test-Path $customIconPath) {
+    if ($global:DofusTrayIconBase64) {
+        # Set by the bundled build (DofusMulti.exe), where there's no assets folder on disk
+        $iconStream = New-Object System.IO.MemoryStream(,[Convert]::FromBase64String($global:DofusTrayIconBase64))
+        $notifyIcon.Icon = New-Object System.Drawing.Icon $iconStream
+    } elseif (Test-Path $customIconPath) {
         $notifyIcon.Icon = New-Object System.Drawing.Icon $customIconPath
     } else {
         $notifyIcon.Icon = [System.Drawing.SystemIcons]::Application
